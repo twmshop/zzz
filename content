@@ -1,0 +1,702 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  LayoutDashboard, 
+  Package, 
+  ArrowUpCircle, 
+  ArrowDownCircle, 
+  History, 
+  Plus, 
+  Search, 
+  AlertTriangle,
+  Menu,
+  X,
+  Trash2,
+  Wallet // Icon baru untuk keuangan
+} from 'lucide-react';
+
+// Komponen Card Sederhana
+const Card = ({ children, className = "" }) => (
+  <div className={`bg-white rounded-xl shadow-sm border border-gray-100 p-6 ${className}`}>
+    {children}
+  </div>
+);
+
+// Helper Format Rupiah
+const formatRupiah = (number) => {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    minimumFractionDigits: 0
+  }).format(number);
+};
+
+// Data Mock Awal (Disesuaikan untuk Baju)
+const INITIAL_INVENTORY = [
+  { id: 1, name: 'Kaos Polos Cotton', category: 'Kaos', stock: 24, unit: 'Pcs', minStock: 10, size: 'L', price: 75000 },
+  { id: 2, name: 'Kaos Polos Cotton', category: 'Kaos', stock: 12, unit: 'Pcs', minStock: 10, size: 'XL', price: 80000 },
+  { id: 3, name: 'Kemeja Flanel Kotak', category: 'Kemeja', stock: 8, unit: 'Pcs', minStock: 5, size: 'M', price: 145000 },
+  { id: 4, name: 'Jaket Denim', category: 'Outerwear', stock: 5, unit: 'Pcs', minStock: 3, size: 'L', price: 350000 },
+];
+
+const INITIAL_LOGS = [
+  { id: 101, type: 'IN', itemId: 1, itemName: 'Kaos Polos Cotton (L)', qty: 24, date: '2023-10-25', note: 'Stok Awal' },
+  { id: 102, type: 'OUT', itemId: 3, itemName: 'Kemeja Flanel Kotak (M)', qty: 1, date: '2023-10-26', note: 'Terjual Online' },
+];
+
+export default function App() {
+  // State
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [inventory, setInventory] = useState(() => {
+    const saved = localStorage.getItem('inventory_clothing'); // Key baru biar fresh
+    return saved ? JSON.parse(saved) : INITIAL_INVENTORY;
+  });
+  const [logs, setLogs] = useState(() => {
+    const saved = localStorage.getItem('stockLogs_clothing'); // Key baru biar fresh
+    return saved ? JSON.parse(saved) : INITIAL_LOGS;
+  });
+
+  // Search & Form States
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  
+  // State Form Tambah Barang (Updated with price & size)
+  const [newItem, setNewItem] = useState({ 
+    name: '', 
+    category: '', 
+    stock: 0, 
+    unit: 'Pcs', 
+    minStock: 5, 
+    price: 0, 
+    size: 'M' 
+  });
+  
+  // Transaction Form States
+  const [transactionType, setTransactionType] = useState('IN');
+  const [selectedItemId, setSelectedItemId] = useState('');
+  const [transactionQty, setTransactionQty] = useState(1);
+  const [transactionNote, setTransactionNote] = useState('');
+
+  // Persist Data
+  useEffect(() => {
+    localStorage.setItem('inventory_clothing', JSON.stringify(inventory));
+    localStorage.setItem('stockLogs_clothing', JSON.stringify(logs));
+  }, [inventory, logs]);
+
+  // Helpers
+  const getLowStockItems = () => inventory.filter(item => item.stock <= item.minStock);
+  const totalItems = inventory.length;
+  const totalStockCount = inventory.reduce((acc, item) => acc + parseInt(item.stock), 0);
+  const totalAssetValue = inventory.reduce((acc, item) => acc + (parseInt(item.stock) * parseInt(item.price)), 0);
+
+  // Handlers
+  const handleAddItem = (e) => {
+    e.preventDefault();
+    const id = Date.now();
+    const itemToAdd = { 
+      ...newItem, 
+      id, 
+      stock: parseInt(newItem.stock), 
+      minStock: parseInt(newItem.minStock),
+      price: parseInt(newItem.price)
+    };
+    
+    setInventory([...inventory, itemToAdd]);
+    
+    // Catat stok awal sebagai log masuk
+    if (itemToAdd.stock > 0) {
+      const log = {
+        id: Date.now() + 1,
+        type: 'IN',
+        itemId: id,
+        itemName: `${itemToAdd.name} (${itemToAdd.size})`,
+        qty: itemToAdd.stock,
+        date: new Date().toISOString().split('T')[0],
+        note: 'Stok Awal Barang Baru'
+      };
+      setLogs([log, ...logs]);
+    }
+
+    setNewItem({ name: '', category: '', stock: 0, unit: 'Pcs', minStock: 5, price: 0, size: 'M' });
+    setShowAddModal(false);
+  };
+
+  const handleDeleteItem = (id) => {
+    if (window.confirm('Yakin ingin menghapus barang ini?')) {
+      setInventory(inventory.filter(item => item.id !== id));
+    }
+  };
+
+  const handleTransaction = (e) => {
+    e.preventDefault();
+    if (!selectedItemId) return alert('Pilih barang terlebih dahulu');
+    
+    const itemIndex = inventory.findIndex(item => item.id === parseInt(selectedItemId));
+    if (itemIndex === -1) return;
+
+    const item = inventory[itemIndex];
+    const qty = parseInt(transactionQty);
+
+    if (transactionType === 'OUT' && item.stock < qty) {
+      alert(`Stok tidak cukup! Stok saat ini: ${item.stock}`);
+      return;
+    }
+
+    // Update Inventory
+    const newInventory = [...inventory];
+    if (transactionType === 'IN') {
+      newInventory[itemIndex].stock += qty;
+    } else {
+      newInventory[itemIndex].stock -= qty;
+    }
+    setInventory(newInventory);
+
+    // Add Log
+    const log = {
+      id: Date.now(),
+      type: transactionType,
+      itemId: item.id,
+      itemName: `${item.name} (${item.size})`,
+      qty: qty,
+      date: new Date().toISOString().split('T')[0],
+      note: transactionNote || '-'
+    };
+    setLogs([log, ...logs]);
+
+    // Reset Form
+    setTransactionQty(1);
+    setTransactionNote('');
+    alert('Transaksi Berhasil!');
+  };
+
+  // --- VIEWS ---
+
+  const DashboardView = () => (
+    <div className="space-y-6 animate-fade-in">
+      <h2 className="text-2xl font-bold text-gray-800">Dashboard Toko</h2>
+      
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="border-l-4 border-blue-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500 font-medium">Jenis Barang</p>
+              <h3 className="text-2xl font-bold text-gray-800">{totalItems}</h3>
+            </div>
+            <Package className="w-8 h-8 text-blue-500 opacity-20" />
+          </div>
+        </Card>
+        <Card className="border-l-4 border-green-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500 font-medium">Total Stok Baju</p>
+              <h3 className="text-2xl font-bold text-gray-800">{totalStockCount}</h3>
+            </div>
+            <LayoutDashboard className="w-8 h-8 text-green-500 opacity-20" />
+          </div>
+        </Card>
+        <Card className="border-l-4 border-purple-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500 font-medium">Total Nilai Aset</p>
+              <h3 className="text-xl font-bold text-gray-800">{formatRupiah(totalAssetValue)}</h3>
+            </div>
+            <Wallet className="w-8 h-8 text-purple-500 opacity-20" />
+          </div>
+        </Card>
+        <Card className="border-l-4 border-red-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-500 font-medium">Perlu Restock</p>
+              <h3 className="text-2xl font-bold text-gray-800">{getLowStockItems().length}</h3>
+            </div>
+            <AlertTriangle className="w-8 h-8 text-red-500 opacity-20" />
+          </div>
+        </Card>
+      </div>
+
+      {/* Low Stock Alert */}
+      {getLowStockItems().length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <AlertTriangle className="text-red-500" />
+            <h3 className="text-lg font-bold text-red-700">Peringatan Stok Menipis</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-red-100 text-red-800">
+                <tr>
+                  <th className="p-3 rounded-tl-lg">Nama Barang</th>
+                  <th className="p-3">Size</th>
+                  <th className="p-3">Harga</th>
+                  <th className="p-3">Sisa Stok</th>
+                  <th className="p-3 rounded-tr-lg">Min. Stok</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-red-200">
+                {getLowStockItems().map(item => (
+                  <tr key={item.id}>
+                    <td className="p-3 font-medium text-gray-700">{item.name}</td>
+                    <td className="p-3 font-bold">{item.size}</td>
+                    <td className="p-3">{formatRupiah(item.price)}</td>
+                    <td className="p-3 text-red-600 font-bold">{item.stock} {item.unit}</td>
+                    <td className="p-3 text-gray-500">{item.minStock} {item.unit}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Logs Preview */}
+      <Card>
+        <h3 className="text-lg font-bold text-gray-800 mb-4">Aktivitas Terakhir</h3>
+        <div className="space-y-4">
+          {logs.slice(0, 5).map(log => (
+            <div key={log.id} className="flex items-center justify-between border-b pb-2 last:border-0">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${log.type === 'IN' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                  {log.type === 'IN' ? <ArrowUpCircle size={20} /> : <ArrowDownCircle size={20} />}
+                </div>
+                <div>
+                  <p className="font-medium text-gray-800">{log.itemName}</p>
+                  <p className="text-xs text-gray-500">{log.date} • {log.note}</p>
+                </div>
+              </div>
+              <span className={`font-bold ${log.type === 'IN' ? 'text-green-600' : 'text-red-600'}`}>
+                {log.type === 'IN' ? '+' : '-'}{log.qty}
+              </span>
+            </div>
+          ))}
+          {logs.length === 0 && <p className="text-gray-400 text-sm">Belum ada aktivitas.</p>}
+        </div>
+      </Card>
+    </div>
+  );
+
+  const InventoryView = () => {
+    const filteredInventory = inventory.filter(item => 
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.category.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <h2 className="text-2xl font-bold text-gray-800">Daftar Stok Baju</h2>
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow transition-colors"
+          >
+            <Plus size={18} /> Tambah Barang
+          </button>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+          <input 
+            type="text" 
+            placeholder="Cari nama baju, kategori..." 
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-50 text-gray-600 text-sm uppercase tracking-wider">
+                <tr>
+                  <th className="p-4 font-semibold">Nama Produk</th>
+                  <th className="p-4 font-semibold">Ukuran</th>
+                  <th className="p-4 font-semibold">Kategori</th>
+                  <th className="p-4 font-semibold">Harga</th>
+                  <th className="p-4 font-semibold text-center">Stok</th>
+                  <th className="p-4 font-semibold text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {filteredInventory.map(item => (
+                  <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="p-4 font-medium text-gray-800">{item.name}</td>
+                    <td className="p-4">
+                      <span className="bg-slate-100 text-slate-700 font-bold px-2 py-1 rounded text-xs border border-slate-200">
+                        {item.size}
+                      </span>
+                    </td>
+                    <td className="p-4 text-gray-500 text-sm">{item.category}</td>
+                    <td className="p-4 text-gray-700 font-medium">{formatRupiah(item.price)}</td>
+                    <td className={`p-4 text-center font-bold ${item.stock <= item.minStock ? 'text-red-500' : 'text-gray-700'}`}>
+                      {item.stock} {item.unit}
+                    </td>
+                    <td className="p-4 text-right">
+                      <button 
+                        onClick={() => handleDeleteItem(item.id)}
+                        className="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors"
+                        title="Hapus Barang"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {filteredInventory.length === 0 && (
+                  <tr>
+                    <td colSpan="6" className="p-8 text-center text-gray-400">
+                      Tidak ada barang yang ditemukan.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const TransactionView = () => (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-gray-800">Catat Transaksi</h2>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Form Transaksi */}
+        <Card>
+          <form onSubmit={handleTransaction} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Transaksi</label>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => setTransactionType('IN')}
+                  className={`flex items-center justify-center gap-2 p-3 rounded-lg border font-medium transition-all ${
+                    transactionType === 'IN' 
+                    ? 'bg-green-50 border-green-500 text-green-700' 
+                    : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  <ArrowUpCircle size={20} /> Stok Masuk
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransactionType('OUT')}
+                  className={`flex items-center justify-center gap-2 p-3 rounded-lg border font-medium transition-all ${
+                    transactionType === 'OUT' 
+                    ? 'bg-red-50 border-red-500 text-red-700' 
+                    : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  <ArrowDownCircle size={20} /> Stok Keluar
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Pilih Produk (Nama - Ukuran)</label>
+              <select 
+                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                value={selectedItemId}
+                onChange={(e) => setSelectedItemId(e.target.value)}
+                required
+              >
+                <option value="">-- Pilih Barang --</option>
+                {inventory.map(item => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} - Size {item.size} (Sisa: {item.stock})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Jumlah</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={transactionQty}
+                  onChange={(e) => setTransactionQty(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
+                <input 
+                  type="text" 
+                  className="w-full p-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-500"
+                  value={new Date().toISOString().split('T')[0]}
+                  readOnly
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Catatan</label>
+              <textarea 
+                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                rows="3"
+                placeholder="Contoh: Restock vendor, terjual di toko..."
+                value={transactionNote}
+                onChange={(e) => setTransactionNote(e.target.value)}
+              ></textarea>
+            </div>
+
+            <button 
+              type="submit" 
+              className={`w-full py-3 px-4 rounded-lg text-white font-bold shadow transition-colors ${
+                transactionType === 'IN' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+              }`}
+            >
+              Simpan Transaksi
+            </button>
+          </form>
+        </Card>
+
+        {/* Panduan */}
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-6 h-fit">
+          <h3 className="font-bold text-blue-800 mb-2">Panduan</h3>
+          <ul className="list-disc list-inside space-y-2 text-sm text-blue-700">
+             <li>Pastikan memilih <strong>Ukuran (Size)</strong> yang tepat saat melakukan transaksi.</li>
+            <li>Pilih <strong>Stok Masuk</strong> untuk pembelian baru atau retur.</li>
+            <li>Pilih <strong>Stok Keluar</strong> untuk penjualan.</li>
+            <li>Harga yang tercatat adalah harga per unit saat barang ditambahkan.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+
+  const HistoryView = () => (
+    <div className="space-y-6">
+       <h2 className="text-2xl font-bold text-gray-800">Riwayat Transaksi</h2>
+       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-50 text-gray-600 text-sm uppercase tracking-wider">
+                <tr>
+                  <th className="p-4 font-semibold">Tanggal</th>
+                  <th className="p-4 font-semibold">Jenis</th>
+                  <th className="p-4 font-semibold">Nama Produk (Size)</th>
+                  <th className="p-4 font-semibold text-center">Jumlah</th>
+                  <th className="p-4 font-semibold">Catatan</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {logs.length > 0 ? (
+                  [...logs].sort((a,b) => b.id - a.id).map(log => (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="p-4 text-gray-600 whitespace-nowrap">{log.date}</td>
+                      <td className="p-4">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          log.type === 'IN' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {log.type === 'IN' ? 'MASUK' : 'KELUAR'}
+                        </span>
+                      </td>
+                      <td className="p-4 font-medium text-gray-800">{log.itemName}</td>
+                      <td className={`p-4 text-center font-bold ${log.type === 'IN' ? 'text-green-600' : 'text-red-600'}`}>
+                        {log.type === 'IN' ? '+' : '-'}{log.qty}
+                      </td>
+                      <td className="p-4 text-gray-500 text-sm italic">{log.note}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                     <td colSpan="5" className="p-8 text-center text-gray-400">
+                      Belum ada data riwayat.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans flex flex-col md:flex-row">
+      
+      {/* Mobile Header */}
+      <div className="md:hidden bg-white border-b p-4 flex justify-between items-center sticky top-0 z-20">
+        <h1 className="font-bold text-xl text-blue-600">AppPakaian</h1>
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 text-gray-600">
+          {sidebarOpen ? <X /> : <Menu />}
+        </button>
+      </div>
+
+      {/* Sidebar */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-10 w-64 bg-slate-800 text-white transform transition-transform duration-300 ease-in-out md:translate-x-0 md:static md:h-screen
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="p-6 border-b border-slate-700">
+          <h1 className="text-2xl font-bold tracking-tight">AppPakaian</h1>
+          <p className="text-slate-400 text-sm mt-1">Stok & Inventaris</p>
+        </div>
+        <nav className="p-4 space-y-2">
+          <button 
+            onClick={() => { setActiveTab('dashboard'); setSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-slate-700'}`}
+          >
+            <LayoutDashboard size={20} /> Dashboard
+          </button>
+          <button 
+            onClick={() => { setActiveTab('inventory'); setSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'inventory' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-slate-700'}`}
+          >
+            <Package size={20} /> Data Baju
+          </button>
+          <button 
+            onClick={() => { setActiveTab('transaction'); setSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'transaction' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-slate-700'}`}
+          >
+            <ArrowUpCircle size={20} /> Transaksi
+          </button>
+          <button 
+            onClick={() => { setActiveTab('history'); setSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'history' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-300 hover:bg-slate-700'}`}
+          >
+            <History size={20} /> Riwayat
+          </button>
+        </nav>
+
+        <div className="absolute bottom-0 w-full p-6 border-t border-slate-700">
+          <p className="text-xs text-slate-500 text-center">© 2025 AppPakaian v2.0</p>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto h-screen">
+        {activeTab === 'dashboard' && <DashboardView />}
+        {activeTab === 'inventory' && <InventoryView />}
+        {activeTab === 'transaction' && <TransactionView />}
+        {activeTab === 'history' && <HistoryView />}
+      </main>
+
+      {/* Add Item Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-fade-in">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-gray-800">Tambah Baju Baru</h3>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={24} />
+              </button>
+            </div>
+            <form onSubmit={handleAddItem} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Produk</label>
+                <input 
+                  type="text" 
+                  required
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={newItem.name}
+                  onChange={(e) => setNewItem({...newItem, name: e.target.value})}
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+                  <input 
+                    type="text" 
+                    required
+                    placeholder="Kaos, Kemeja, dll"
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    value={newItem.category}
+                    onChange={(e) => setNewItem({...newItem, category: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ukuran (Size)</label>
+                  <select 
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold"
+                    value={newItem.size}
+                    onChange={(e) => setNewItem({...newItem, size: e.target.value})}
+                  >
+                    <option value="S">S</option>
+                    <option value="M">M</option>
+                    <option value="L">L</option>
+                    <option value="XL">XL</option>
+                    <option value="XXL">XXL</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Harga Satuan (Rp)</label>
+                <input 
+                  type="number" 
+                  min="0"
+                  required
+                  placeholder="Contoh: 75000"
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={newItem.price}
+                  onChange={(e) => setNewItem({...newItem, price: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Stok Awal</label>
+                  <input 
+                    type="number" 
+                    min="0"
+                    required
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    value={newItem.stock}
+                    onChange={(e) => setNewItem({...newItem, stock: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Satuan</label>
+                  <select 
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    value={newItem.unit}
+                    onChange={(e) => setNewItem({...newItem, unit: e.target.value})}
+                  >
+                    <option value="Pcs">Pcs</option>
+                    <option value="Lusin">Lusin</option>
+                    <option value="Kodi">Kodi</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Minimum Stok (Alert)</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={newItem.minStock}
+                  onChange={(e) => setNewItem({...newItem, minStock: e.target.value})}
+                />
+              </div>
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50"
+                >
+                  Batal
+                </button>
+                <button 
+                  type="submit" 
+                  className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow"
+                >
+                  Simpan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
